@@ -31,7 +31,7 @@ Fedora/Ubuntu name
     cmake ..
     make
 
-### Build from you checkout dir (Python 3 bindings):
+### Build from your checkout dir (Python 3 bindings):
 
     mkdir build
     cd build/
@@ -57,7 +57,7 @@ Fedora/Ubuntu name
 
 ### Online python bindings documentation:
 
-http://tojaj.github.com/librepo/
+https://rpm-software-management.github.com/librepo/
 
 ## Python 3 notes:
 

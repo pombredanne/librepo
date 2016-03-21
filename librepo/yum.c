@@ -273,7 +273,8 @@ lr_yum_download_repomd(LrHandle *handle,
                                                      (cbdata) ? hmfcb : NULL,
                                                      NULL,
                                                      0,
-                                                     0);
+                                                     0,
+                                                     TRUE);
 
     ret = lr_download_target(target, &tmp_err);
     assert((ret && !tmp_err) || (!ret && tmp_err));
@@ -379,7 +380,8 @@ lr_yum_download_repo(LrHandle *handle,
                                        NULL,
                                        NULL,
                                        0,
-                                       0);
+                                       0,
+                                       FALSE);
 
         targets = g_slist_append(targets, target);
 
@@ -873,6 +875,7 @@ lr_yum_download_remote(LrHandle *handle, LrResult *result, GError **err)
                                              path,
                                              handle->gnupghomedir,
                                              &tmp_err);
+                lr_free(signature);
                 if (!ret) {
                     g_debug("%s: GPG signature verification failed: %s",
                             __func__, tmp_err->message);
@@ -880,7 +883,6 @@ lr_yum_download_remote(LrHandle *handle, LrResult *result, GError **err)
                             "repomd.xml GPG signature verification error: ");
                     close(fd);
                     lr_free(path);
-                    lr_free(signature);
                     return FALSE;
                 }
                 g_debug("%s: GPG signature successfully verified", __func__);

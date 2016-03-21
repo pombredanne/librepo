@@ -63,6 +63,8 @@ lr_get_curl_handle()
     curl_easy_setopt(h, CURLOPT_LOW_SPEED_LIMIT, LRO_LOWSPEEDLIMIT_DEFAULT);
     curl_easy_setopt(h, CURLOPT_SSL_VERIFYHOST, 2);
     curl_easy_setopt(h, CURLOPT_SSL_VERIFYPEER, 1);
+    curl_easy_setopt(h, CURLOPT_FTP_USE_EPSV, LRO_FTPUSEEPSV_DEFAULT);
+
     return h;
 }
 
@@ -106,6 +108,7 @@ lr_handle_init()
     handle->offline = LRO_OFFLINE_DEFAULT;
     handle->httpauthmethods = LRO_HTTPAUTHMETHODS_DEFAULT;
     handle->proxyauthmethods = LRO_PROXYAUTHMETHODS_DEFAULT;
+    handle->ftpuseepsv = LRO_FTPUSEEPSV_DEFAULT;
 
     return handle;
 }
@@ -143,7 +146,6 @@ lr_handle_free(LrHandle *handle)
     lr_urlvars_free(handle->urlvars);
     lr_free(handle->gnupghomedir);
     lr_handle_free_list(&handle->httpheader);
-    curl_slist_free_all(handle->curl_httpheader);
     lr_free(handle);
 }
 
@@ -478,15 +480,7 @@ lr_handle_setopt(LrHandle *handle,
     {
         char **list = va_arg(arg, char **);
         lr_handle_free_list(&handle->httpheader);
-        curl_slist_free_all(handle->curl_httpheader);
         handle->httpheader = lr_strv_dup(list);
-
-        struct curl_slist *headers = NULL;
-        for (int x=0; list && handle->httpheader[x]; x++)
-            headers = curl_slist_append(headers, handle->httpheader[x]);
-
-        handle->curl_httpheader = headers;
-        curl_easy_setopt(c_h, CURLOPT_HTTPHEADER, headers);
         break;
     }
 
@@ -711,11 +705,17 @@ lr_handle_setopt(LrHandle *handle,
         break;
     }
 
+    case LRO_FTPUSEEPSV:
+        handle->ftpuseepsv = va_arg(arg, long) ? 1 : 0;
+        c_rc = curl_easy_setopt(c_h, CURLOPT_FTP_USE_EPSV, handle->ftpuseepsv);
+        break;
+
     default:
         g_set_error(err, LR_HANDLE_ERROR, LRE_BADOPTARG,
                     "Unknown option");
         ret = FALSE;
         break;
+
     };
 
     /* Handle CURL error return code */
@@ -742,6 +742,41 @@ lr_handle_setopt(LrHandle *handle,
 /*
  * Internal mirrorlist stuff
  */
+
+static gboolean
+download_non_cached_url(LrHandle *lr_handle, const char *url, int fd, GError **err)
+{
+    // This function is almost 1:1 copy of lr_download_url
+
+    gboolean ret;
+    LrDownloadTarget *target;
+    GError *tmp_err = NULL;
+
+    assert(url);
+    assert(!err || *err == NULL);
+
+    // Prepare target
+    target = lr_downloadtarget_new(lr_handle,
+                                   url, NULL, fd, NULL,
+                                   NULL, 0, 0, NULL, NULL,
+                                   NULL, NULL, NULL, 0, 0, TRUE);
+
+    // Download the target
+    ret = lr_download_target(target, &tmp_err);
+
+    assert(ret || tmp_err);
+    assert(!(target->err) || !ret);
+
+    if (!ret)
+        g_propagate_error(err, tmp_err);
+
+    lr_downloadtarget_free(target);
+
+    lseek(fd, 0, SEEK_SET);
+
+    return ret;
+}
+
 
 static gboolean
 lr_handle_prepare_urls(LrHandle *handle, GError **err)
@@ -828,7 +863,7 @@ lr_handle_prepare_mirrorlist(LrHandle *handle, gchar *localpath, GError **err)
         }
 
         url = lr_prepend_url_protocol(handle->mirrorlisturl);
-        if (!lr_download_url(handle, url, fd, err)) {
+        if (!download_non_cached_url(handle, url, fd, err)) {
             close(fd);
             return FALSE;
         }
@@ -944,7 +979,7 @@ lr_handle_prepare_metalink(LrHandle *handle, gchar *localpath, GError **err)
         }
 
         url = lr_prepend_url_protocol(handle->metalinkurl);
-        if (!lr_download_url(handle, url, fd, err)) {
+        if (!download_non_cached_url(handle, url, fd, err)) {
             close(fd);
             return FALSE;
         }
@@ -1485,6 +1520,11 @@ lr_handle_getinfo(LrHandle *handle,
         *auth = handle->proxyauthmethods;
         break;
     }
+
+    case LRI_FTPUSEEPSV:
+        lnum = va_arg(arg, long *);
+        *lnum = (long) handle->ftpuseepsv;
+        break;
 
     default:
         rc = FALSE;
